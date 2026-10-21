@@ -81,11 +81,40 @@ local function get(url, sink, block_timeout, total_timeout)
     return nil, "too many redirects"
 end
 
+-- Without the API: github.com answers /releases/latest with a redirect to
+-- the release's tag, and assets live at a fixed address under that tag. No
+-- API rate limit applies, which matters on shared connections.
+function Updater.latestFromRedirect()
+    local http = require("socket.http")
+    local socket = require("socket")
+    local socketutil = require("socketutil")
+    socketutil:set_timeout(socketutil.LARGE_BLOCK_TIMEOUT, socketutil.LARGE_TOTAL_TIMEOUT)
+    local code, headers, status = socket.skip(1, http.request{
+        url = "https://github.com/" .. Updater.REPO .. "/releases/latest",
+        method = "HEAD",
+        redirect = false,
+        headers = { ["User-Agent"] = USER_AGENT },
+    })
+    socketutil:reset_timeout()
+    local location = headers and (headers.location or headers.Location)
+    local tag = location and location:match("/releases/tag/([^/?#]+)")
+    if not tag then return nil, tostring(status or code or "network unreachable") end
+    return {
+        version = tag:gsub("^v", ""),
+        url = "https://github.com/" .. Updater.REPO .. "/releases/download/" .. tag .. "/" .. Updater.ASSET,
+        notes = "",
+    }
+end
+
 -- The latest release: { version = "1.2.3", url = asset url, notes = text },
--- or nil + error.
+-- or nil + error. Asks the API first (for the release notes), then falls
+-- back to the redirect.
 function Updater.fetchLatest()
     local body, err = get("https://api.github.com/repos/" .. Updater.REPO .. "/releases/latest")
-    if not body then return nil, err end
+    if not body then
+        logger.dbg("Dashboard: release API failed, trying the redirect:", err)
+        return Updater.latestFromRedirect()
+    end
     local ok, json = pcall(require, "rapidjson")
     if not ok then json = require("json") end
     local parsed, data = pcall(json.decode, body)

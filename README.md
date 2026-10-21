@@ -76,7 +76,9 @@ at a time in the background, and cached under `koreader/cache/bookorbitdashboard
 
 ## Updates
 
-The plugin updates itself from this repository's GitHub releases.
+The plugin updates itself from this repository's GitHub releases. This
+needs the repository to be **public**: KOReader isn't signed in to GitHub,
+so it can't see a private repository's releases.
 
 - **Daily check:** once a day, and only when Wi-Fi is already on, it looks
   for a newer release. You're asked once about each new version. Turn this
