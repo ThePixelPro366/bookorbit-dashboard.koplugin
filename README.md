@@ -90,7 +90,8 @@ The plugin updates itself from this repository's GitHub releases.
 
 1. Set `Dashboard.PLUGIN_VERSION` in `bookorbitdashboard.koplugin/main.lua`
    to the new version (for example `1.2.0`) and commit it.
-2. Tag the commit and push the tag: `git tag v1.2.0 && git push origin v1.2.0`.
+2. Either push a tag (`git tag v1.2.0 && git push origin v1.2.0`) or open
+   **Actions → Release → Run workflow** on GitHub, which tags the commit for you.
 
 The [Release workflow](.github/workflows/release.yml) checks that the tag
 matches `PLUGIN_VERSION`, zips the plugin (with the license files), and
