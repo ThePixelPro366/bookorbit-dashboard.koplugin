@@ -100,6 +100,8 @@ end
 
 -- ------------------------------------------------------------------ books
 local book_cache = {}
+-- Covers already found on disk, by path: { file, added }.
+local cover_found = {}
 
 function Library.invalidateBooks(path)
     if path then
@@ -107,6 +109,8 @@ function Library.invalidateBooks(path)
     else
         book_cache = {}
     end
+    -- A custom cover set or cleared in Book information is seen next time.
+    if path then cover_found[path] = nil else cover_found = {} end
 end
 
 local bim_loaded, bim = false, nil
@@ -343,32 +347,53 @@ function Library.extract(path, want_cover)
 end
 
 -- The extractor's queue: covers first (something on screen waits for
--- them), then books whose metadata is unknown. One book per step.
+-- them), then books whose metadata is unknown. One book per step. Opening a
+-- book takes a while on an e-reader, so metadata-only work waits until the
+-- reader has left the screen alone for a few seconds, and goes slowly.
 local queue, queued = {}, {}
 local running = false
--- Called (debounced) when the extractor learnt something new.
+local IDLE_DELAY = 4
+local quiet_until = 0
+-- Called (debounced) when the extractor learnt something new: with
+-- "covers" when only covers arrived, "books" when metadata did (which can
+-- change shelves and counts).
 Library.on_update = nil
+-- Bumped with each new cover, so cached pages drawn without it are redrawn.
+Library.cover_version = 0
 
-local notify_pending = false
-local function notify()
-    if notify_pending then return end
-    notify_pending = true
-    UIManager:scheduleIn(1.5, function()
-        notify_pending = false
+-- The reader touched the screen: background metadata work holds off.
+function Library.busy()
+    quiet_until = os.time() + IDLE_DELAY
+end
+
+local pending = { covers = false, books = false, task = nil }
+local function notify(kind)
+    pending[kind] = true
+    if pending.task then return end
+    pending.task = function()
+        pending.task = nil
         saveMeta()
-        if Library.on_update then Library.on_update() end
-    end)
+        local what = pending.books and "books" or "covers"
+        pending.covers, pending.books = false, false
+        if Library.on_update then Library.on_update(what) end
+    end
+    UIManager:scheduleIn(kind == "covers" and 1.5 or 2, pending.task)
 end
 
 local function runQueue()
     if running then return end
     running = true
     local function step()
-        local job = table.remove(queue, 1)
+        local job = queue[1]
         if not job then
             running = false
+            if meta_dirty then notify("books") end
             return
         end
+        if not job.cover and os.time() < quiet_until then
+            return UIManager:scheduleIn(IDLE_DELAY, step)
+        end
+        table.remove(queue, 1)
         queued[job.path] = nil
         local ok, err = pcall(Library.extract, job.path, job.cover)
         if not ok then
@@ -376,9 +401,13 @@ local function runQueue()
             metaStore()[job.path] = { mtime = lfs.attributes(job.path, "modification"), nocover = true, failed = true }
             meta_dirty = true
         end
-        notify()
-        -- One book per tick, so taps and page turns are never held up.
-        UIManager:scheduleIn(0.05, step)
+        if job.cover then
+            Library.cover_version = Library.cover_version + 1
+            notify("covers")
+        end
+        -- Metadata-only books are told about once the queue is empty, in one
+        -- reload rather than one per book.
+        UIManager:scheduleIn(job.cover and 0.05 or 0.5, step)
     end
     UIManager:scheduleIn(0.3, step)
 end
@@ -403,14 +432,23 @@ end
 
 -- The cover image to draw for a book, and its state: a path when the cover
 -- is cached, "loading" while it waits its turn, nil when the book has none.
+-- A found cover is remembered, so a redraw does not look for it again.
 function Library.cover(book)
     local path = book and book.path
     if not path then return nil, nil end
+    local found = cover_found[path]
+    if found and found.added == book.added then return found.file, "ready" end
     local custom = DocSettings:findCustomCoverFile(path)
-    if custom then return custom, "ready" end
-    local file = coverFile(path)
-    local mtime = lfs.attributes(file, "modification")
-    if mtime and mtime >= (book.added or 0) then return file, "ready" end
+    local file = custom
+    if not file then
+        file = coverFile(path)
+        local mtime = lfs.attributes(file, "modification")
+        if not (mtime and mtime >= (book.added or 0)) then file = nil end
+    end
+    if file then
+        cover_found[path] = { file = file, added = book.added }
+        return file, "ready"
+    end
     local known = Library.meta(path, book.added)
     if known and known.nocover then return nil, nil end
     Library.queue(path, true)
@@ -507,12 +545,15 @@ function Library.all(now)
     return books, by_path, hist, generation
 end
 
+local streak_cache = { day = nil, at = 0 }
+
 -- Streaks from this device's statistics: days in a row with any reading
 -- (still counting when today has none yet), the longest run in the last
--- year, and which of the last seven days had reading.
+-- year, and which of the last seven days had reading. Kept two minutes.
 function Library.streak(now)
     now = now or os.time()
     local today = dayStart(now)
+    if streak_cache.day == today and now - streak_cache.at < 120 then return streak_cache.value end
     local daily = StatsReader.getDailySeconds(today - 400 * DAY) or {}
     local function read(t) return (daily[dateKey(t + 12 * 3600)] or 0) >= 60 end
     local current = 0
@@ -533,7 +574,9 @@ function Library.streak(now)
     end
     local last_seven = {}
     for i = 1, 7 do last_seven[i] = read(today - (7 - i) * DAY) end
-    return { currentStreak = current, longestStreak = math.max(longest, current), lastSevenDays = last_seven }
+    local value = { currentStreak = current, longestStreak = math.max(longest, current), lastSevenDays = last_seven }
+    streak_cache = { day = today, at = now, value = value }
+    return value
 end
 
 -- One highlight a day from the books in the history: every highlight with

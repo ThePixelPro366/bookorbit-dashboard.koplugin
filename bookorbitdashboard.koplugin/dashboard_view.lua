@@ -13,10 +13,17 @@ a tap goes to exactly what was drawn there: a cover, a stepper, a button. A
 D-pad press is a tap at the focused tile's centre, which lands on the tile's
 own action.
 
+Each page, once built, is kept as a bitmap with its tiles: showing it again
+(a page flip, coming back from a list) is one blit, and the pages beside the
+one on screen are built while the reader is idle. A tile or the header that
+changes repaints only its own rectangle of that bitmap. Edit mode, the
+starter and D-pad focus draw live instead.
+
 This module is derived from BookOrbit's KOReader plugin (catalog board); see
 the NOTICE file shipped with this plugin.
 ]]
 
+local Blitbuffer = require("ffi/blitbuffer")
 local Device = require("device")
 local Event = require("ui/event")
 local FocusManager = require("ui/widget/focusmanager")
@@ -91,6 +98,7 @@ function BoardTile:actionAt(pos)
 end
 
 function BoardTile:onTapSelect(_, ges)
+    Library.busy()
     local action = self:actionAt(ges and ges.pos)
     if action then self.menu:boardRun(action, self) end
     return true
@@ -661,13 +669,21 @@ function DashboardView:updateDashboardItems()
     self._board_ctx = ctx
     self._board_geometry = g
 
-    local screen, rows, packed
+    local screen, rows
+    self._page_bb = nil
     if self:boardShowStarter(state, context) then
         screen, rows = self:boardBuildStarter(ctx, g, screen_w, screen_h)
         self._board_tiles, self._board_header = {}, nil
+    elseif self:boardCacheable() then
+        BoardUI.clearSnapshots("starter:")
+        local entry = self:boardCachedPage(ctx, g, page, screen_w, screen_h)
+        screen, rows = entry.screen, entry.rows
+        self._board_tiles, self._board_header, self._page_bb = entry.tiles, entry.header, entry.bb
+        self:boardFreshenClock(entry, ctx, g, page)
+        self:boardSchedulePrebuild(page)
     else
         BoardUI.clearSnapshots("starter:")
-        screen, rows, packed = self:boardBuildScreen(ctx, g, page, screen_w, screen_h)
+        screen, rows = self:boardBuildScreen(ctx, g, page, screen_w, screen_h)
         if self.board_edit and self.board_edit.sheet then
             local sheet = self:boardRegion(function() return self:boardSheet(ctx, g, screen_w, screen_h) end, { kind = "noop" })
             local sh = sheet:getSize().h
@@ -692,6 +708,122 @@ function DashboardView:updateDashboardItems()
     self:finishCustomUpdate(old_dimen)
 end
 
+-- --------------------------------------------------------- page cache
+-- Pages are cached as bitmaps only where nothing is drawn live over them.
+function DashboardView:boardCacheable()
+    if self.board_edit then return false end
+    return not (Device:hasDPad() and not Device:isTouchDevice())
+end
+
+-- Everything a page's pixels depend on besides the data fingerprint.
+function DashboardView:boardPageKey(ctx, page, screen_w, screen_h)
+    return table.concat({ page, ctx.d.fingerprint, os.date("%H"), tostring(ctx.tiles), screen_w .. "x" .. screen_h,
+        tostring(self.settings.ui_scale), tostring(self.settings.tap_resumes), Library.cover_version or 0,
+        tostring(BoardStore.read(self.settings).preset) }, "|")
+end
+
+function DashboardView:boardFreePages()
+    for _page, entry in pairs(self._pages or {}) do
+        if entry.bb then entry.bb:free() end
+    end
+    self._pages = {}
+    self._page_bb = nil
+end
+
+-- Builds a page's widgets and paints them once into a bitmap of the
+-- screen's own type. Painting sets every tile's position, so taps land on
+-- the cached page exactly as on a live one.
+function DashboardView:boardBuildPage(ctx, g, page, screen_w, screen_h, key)
+    local saved = { self._board_tiles, self._board_header, self._board_origin }
+    local screen, rows = self:boardBuildScreen(ctx, g, page, screen_w, screen_h)
+    local entry = { key = key, screen = screen, rows = rows, tiles = self._board_tiles, header = self._board_header }
+    self._board_tiles, self._board_header, self._board_origin = saved[1], saved[2], saved[3]
+    entry.bb = Blitbuffer.new(screen_w, screen_h, Screen.bb:getType())
+    entry.bb:fill(INK.white)
+    screen:paintTo(entry.bb, 0, 0)
+    entry.clock = ctx.d.clock
+    self._pages = self._pages or {}
+    local old = self._pages[page]
+    if old and old.bb and old.bb ~= self._page_bb then old.bb:free() end
+    self._pages[page] = entry
+    return entry
+end
+
+function DashboardView:boardCachedPage(ctx, g, page, screen_w, screen_h)
+    local key = self:boardPageKey(ctx, page, screen_w, screen_h)
+    local entry = self._pages and self._pages[page]
+    if entry and entry.key == key then return entry end
+    return self:boardBuildPage(ctx, g, page, screen_w, screen_h, key)
+end
+
+-- A cached page drawn a few minutes ago: its header (clock, battery, Wi-Fi)
+-- and its clocks are drawn again into the bitmap before it is shown.
+function DashboardView:boardFreshenClock(entry, ctx, g, page)
+    if entry.clock == ctx.d.clock then return end
+    entry.clock = ctx.d.clock
+    local header_tile = entry.header
+    if header_tile and header_tile.dimen and header_tile.dimen.x then
+        local header, hits = BoardUI.collectHits(function() return self:boardHeader(ctx.d, g.w, "normal", self:boardPageNames(g.cols)[page]) end)
+        header_tile[1] = header
+        header_tile.hits = hits
+        entry.bb:paintRect(header_tile.dimen.x, header_tile.dimen.y, header_tile.dimen.w, header_tile.dimen.h, INK.white)
+        header_tile:paintTo(entry.bb, header_tile.dimen.x, header_tile.dimen.y)
+    end
+    for _i, t in ipairs(entry.tiles or {}) do
+        if (t.item.type == "clock" or t.item.type == "analog") and t.tile.dimen and t.tile.dimen.x then
+            local fresh = self:boardBuildTile(ctx, t.item, t.w, t.h)
+            t.tile[1] = fresh[1]
+            t.tile.hits = fresh.hits
+            local dm = t.tile.dimen
+            entry.bb:paintRect(dm.x, dm.y, dm.w, dm.h, INK.white)
+            t.tile:paintTo(entry.bb, dm.x, dm.y)
+        end
+    end
+end
+
+-- While the reader looks at a page, the pages either side are built, one
+-- per idle moment, so the next flip is a blit.
+function DashboardView:boardSchedulePrebuild(page)
+    if self._prebuild_task then UIManager:unschedule(self._prebuild_task) end
+    self._prebuild_task = function()
+        self._prebuild_task = nil
+        if self.closed or self.board_edit or not self._board_ctx or self:boardPage() ~= page then return end
+        if not self:boardIsTopmost() then return end
+        local g = self._board_geometry
+        for _i, other in ipairs({ page + 1, page - 1 }) do
+            if other >= 1 and other <= BoardStore.PAGE_COUNT then
+                local key = self:boardPageKey(self._board_ctx, other, self.inner_dimen.w, self.available_height)
+                local entry = self._pages and self._pages[other]
+                if not (entry and entry.key == key) then
+                    self:boardBuildPage(self._board_ctx, g, other, self.inner_dimen.w, self.available_height, key)
+                    -- One page per idle moment; the next one after another pause.
+                    return self:boardSchedulePrebuild(page)
+                end
+            end
+        end
+    end
+    UIManager:scheduleIn(1.5, self._prebuild_task)
+end
+
+-- Repaints one widget (a tile or the header) into the cached page and
+-- refreshes only its rectangle.
+function DashboardView:boardRepaintRegion(widget, mode)
+    local dimen = widget.dimen
+    if not dimen or not dimen.x then return self:updateItems() end
+    if self._page_bb then
+        self._page_bb:paintRect(dimen.x, dimen.y, dimen.w, dimen.h, INK.white)
+        widget:paintTo(self._page_bb, dimen.x, dimen.y)
+    end
+    UIManager:setDirty(self, function() return mode or "ui", dimen end)
+end
+
+function DashboardView:paintTo(bb, x, y)
+    local cached = self._page_bb
+    if not cached then return FocusManager.paintTo(self, bb, x, y) end
+    self.dimen.x, self.dimen.y = x, y
+    bb:blitFrom(cached, x, y, 0, 0, cached:getWidth(), cached:getHeight())
+end
+
 -- Repaints one tile in place: rebuilds its content and refreshes only its
 -- rectangle, so a stepper or a hero page does not flash the whole board.
 function DashboardView:boardRefreshTile(entry, mode)
@@ -700,11 +832,17 @@ function DashboardView:boardRefreshTile(entry, mode)
     local fresh = self:boardBuildTile(self._board_ctx, entry.item, entry.w, entry.h)
     entry.tile[1] = fresh[1]
     entry.tile.hits = fresh.hits
-    local dimen = entry.tile.dimen
-    if dimen and dimen.x then
-        UIManager:setDirty(self.show_parent, function() return mode or "ui", dimen end)
-    else
-        self:updateItems()
+    self:boardRepaintRegion(entry.tile, mode)
+    -- The other cached pages were drawn from older data.
+    self:boardForgetOtherPages()
+end
+
+function DashboardView:boardForgetOtherPages()
+    for page, entry in pairs(self._pages or {}) do
+        if entry.bb ~= self._page_bb then
+            if entry.bb then entry.bb:free() end
+            self._pages[page] = nil
+        end
     end
 end
 
@@ -733,8 +871,7 @@ function DashboardView:boardRefreshClock()
     local header, hits = BoardUI.collectHits(function() return self:boardHeader(ctx.d, g.w, "normal", self:boardPageNames(g.cols)[self:boardPage()]) end)
     header_tile[1] = header
     header_tile.hits = hits
-    local dimen = header_tile.dimen
-    UIManager:setDirty(self.show_parent, function() return "fast", dimen end)
+    self:boardRepaintRegion(header_tile, "fast")
     local hour = os.date("%H")
     local new_hour = self._board_clock_hour ~= nil and self._board_clock_hour ~= hour
     self._board_clock_hour = hour
@@ -1212,11 +1349,13 @@ function DashboardView:init()
     end
     -- New covers or metadata from the extractor: gather the board's data
     -- again, and redraw when nothing covers the board.
-    Library.on_update = function()
+    Library.on_update = function(what)
         if self.closed then return end
-        BoardUI.clearSnapshots()
-        self:boardReload(true)
-        if self:boardIsTopmost() then self:updateItems() end
+        if what == "books" then
+            BoardUI.clearSnapshots()
+            self:boardReload(true)
+        end
+        if self:boardIsTopmost() and not self.board_edit then self:updateItems() end
     end
     self:boardReload(true)
     self:updateItems()
@@ -1224,6 +1363,8 @@ end
 
 function DashboardView:persistSetting(key, value)
     self.settings[key] = value
+    -- A new layout, preset or tile style: no cached page is right any more.
+    if key == BoardStore.SETTING_KEY then self:boardFreePages() end
     if self.plugin and self.plugin.saveSettings then self.plugin:saveSettings() end
 end
 
@@ -1271,6 +1412,7 @@ end
 -- Swipe left or right turns the page; a swipe down from the top edge opens
 -- the menu, as KOReader's own menu gesture does elsewhere.
 function DashboardView:onSwipe(_arg, ges)
+    Library.busy()
     local dir = ges and ges.direction
     if dir == "west" then
         return self:onNextPage()
@@ -1306,6 +1448,7 @@ function DashboardView:onSetDimensions(dimen)
     self.dimen = Geom:new{ x = 0, y = 0, w = dimen.w, h = dimen.h }
     self.inner_dimen = Geom:new{ w = dimen.w, h = dimen.h }
     self[1].dimen = self.dimen:copy()
+    self:boardFreePages()
     BoardUI.clearSnapshots()
     self:updateItems()
 end
@@ -1318,6 +1461,8 @@ end
 function DashboardView:onCloseWidget()
     self.closed = true
     if self._board_clock_task then UIManager:unschedule(self._board_clock_task) end
+    if self._prebuild_task then UIManager:unschedule(self._prebuild_task) end
+    self:boardFreePages()
     Library.on_update = nil
     if self.close_callback then self.close_callback() end
 end
