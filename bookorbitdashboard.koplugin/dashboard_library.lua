@@ -8,7 +8,7 @@ rating, highlights, metadata), the reading history (when it was last opened),
 CoverBrowser's book info cache (metadata and covers of books never opened),
 collections, and statistics.sqlite3. A book none of those know yet is opened
 once by the extractor, one book at a time between paints, for its metadata
-and its cover; both are cached under cache/readingdashboard.
+and its cover; both are cached under cache/bookorbitdashboard.
 
 body() returns the dashboard body the board widgets read: continue reading,
 the shelves, counts, the reading goal and streak, a highlight of the day and
@@ -234,7 +234,7 @@ end
 local cache_dir
 local function cacheDir()
     if not cache_dir then
-        cache_dir = DataStorage:getDataDir() .. "/cache/readingdashboard"
+        cache_dir = DataStorage:getDataDir() .. "/cache/bookorbitdashboard"
         util.makePath(cache_dir .. "/covers")
     end
     return cache_dir

@@ -1,5 +1,6 @@
 --[[--
-Reading dashboard plugin.
+Bookorbit Dashboard plugin: the Bookorbit Dashboard but stripped of
+everything related to Bookorbit.
 
 A board of widgets over KOReader's file browser, built from this device's
 books, history and statistics. This file owns the plugin's lifecycle: its
@@ -23,13 +24,13 @@ local ChapterMap = require("dashboard_chapter_map")
 local Library = require("dashboard_library")
 local MenuPin = require("dashboard_menu_pin")
 
-local SETTINGS_KEY = "reading_dashboard"
+local SETTINGS_KEY = "bookorbit_dashboard"
 -- A closed book returns to the dashboard only if the file browser shows up
 -- within this many seconds of the reader closing.
 local RETURN_HOME_WINDOW = 10
 
 local Dashboard = WidgetContainer:extend{
-    name = "readingdashboard",
+    name = "bookorbitdashboard",
     settings = nil,
 }
 
@@ -56,7 +57,7 @@ function Dashboard:init()
     -- The reader clears its document before its widgets close, so remember
     -- which side this instance serves.
     self.in_reader = self.ui ~= nil and self.ui.document ~= nil
-    if self.in_reader then PluginShare.reading_dashboard_return = nil end
+    if self.in_reader then PluginShare.bookorbit_dashboard_return = nil end
     self:onDispatcherRegisterActions()
     self.ui.menu:registerToMainMenu(self)
     self:onStart()
@@ -67,8 +68,8 @@ function Dashboard:saveSettings()
 end
 
 function Dashboard:onDispatcherRegisterActions()
-    Dispatcher:registerAction("reading_dashboard_open",
-        { category = "none", event = "ReadingDashboardOpen", title = _("Dashboard: open"), general = true, separator = true })
+    Dispatcher:registerAction("bookorbit_dashboard_open",
+        { category = "none", event = "BookorbitDashboardOpen", title = _("Bookorbit Dashboard: open"), general = true, separator = true })
 end
 
 -- ------------------------------------------------------------------ open
@@ -81,8 +82,8 @@ function Dashboard:openDashboard()
     if self.in_reader then
         -- The dashboard lives over the file browser: close the book and come
         -- back to it there.
-        PluginShare.reading_dashboard_return = os.time()
-        PluginShare.reading_dashboard_once = true
+        PluginShare.bookorbit_dashboard_return = os.time()
+        PluginShare.bookorbit_dashboard_once = true
         self.ui:onHome()
         return
     end
@@ -96,7 +97,7 @@ function Dashboard:openDashboard()
     return self.view
 end
 
-function Dashboard:onReadingDashboardOpen()
+function Dashboard:onBookorbitDashboardOpen()
     if self:isOpen() then
         -- Already open: the shortcut opens its menu instead.
         if UIManager:getTopmostVisibleWidget() == self.view then self:openMenuSheet(self.view) end
@@ -107,8 +108,8 @@ function Dashboard:onReadingDashboardOpen()
 end
 
 function Dashboard:onStart()
-    if self.in_reader or PluginShare.reading_dashboard_started then return end
-    PluginShare.reading_dashboard_started = true
+    if self.in_reader or PluginShare.bookorbit_dashboard_started then return end
+    PluginShare.bookorbit_dashboard_started = true
     local mode = self.settings.auto_open or "off"
     if mode ~= "filemanager" and mode ~= "home" then return end
     UIManager:nextTick(function()
@@ -120,11 +121,11 @@ end
 -- the dashboard over itself before its first paint, so it never flashes.
 function Dashboard:onShow()
     if self.in_reader then return end
-    local closed_at = PluginShare.reading_dashboard_return
+    local closed_at = PluginShare.bookorbit_dashboard_return
     if not closed_at then return end
-    local once = PluginShare.reading_dashboard_once
-    PluginShare.reading_dashboard_return = nil
-    PluginShare.reading_dashboard_once = nil
+    local once = PluginShare.bookorbit_dashboard_once
+    PluginShare.bookorbit_dashboard_return = nil
+    PluginShare.bookorbit_dashboard_once = nil
     if os.time() - closed_at > RETURN_HOME_WINDOW then return end
     if not once and self.settings.auto_open ~= "home" then return end
     if not self:isOpen() then self:openDashboard() end
@@ -142,8 +143,8 @@ function Dashboard:onCloseDocument()
 end
 
 function Dashboard:onCloseWidget()
-    if self.in_reader and self.settings.auto_open == "home" and not PluginShare.reading_dashboard_return then
-        PluginShare.reading_dashboard_return = os.time()
+    if self.in_reader and self.settings.auto_open == "home" and not PluginShare.bookorbit_dashboard_return then
+        PluginShare.bookorbit_dashboard_return = os.time()
     end
 end
 
@@ -196,8 +197,8 @@ local function closeKOReaderMenu(ui)
 end
 
 function Dashboard:addToMainMenu(menu_items)
-    menu_items.reading_dashboard = {
-        text = _("Reading dashboard"),
+    menu_items.bookorbit_dashboard = {
+        text = _("Bookorbit Dashboard"),
         -- Fallback placement only: MenuPin normally pins this entry right
         -- below calibre on the first page of the Tools menu.
         sorting_hint = "tools",
@@ -218,7 +219,7 @@ function Dashboard:addToMainMenu(menu_items)
     }
     if self:menuBarIconEnabled() then
         -- A tab that acts as a button, like the reader's file browser tab.
-        menu_items.reading_dashboard_tab = {
+        menu_items.bookorbit_dashboard_tab = {
             icon = self:menuBarIconName(),
             remember = false,
             callback = function()

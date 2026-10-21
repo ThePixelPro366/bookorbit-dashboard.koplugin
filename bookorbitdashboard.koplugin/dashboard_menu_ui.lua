@@ -299,7 +299,7 @@ local GESTURE_SVG = {
 local gesture_dir
 local function gestureFile(kind)
     if not gesture_dir then
-        gesture_dir = DataStorage:getDataDir() .. "/cache/readingdashboard/icons"
+        gesture_dir = DataStorage:getDataDir() .. "/cache/bookorbitdashboard/icons"
         util.makePath(gesture_dir)
     end
     local path = gesture_dir .. "/gesture-" .. kind .. "-v1.svg"

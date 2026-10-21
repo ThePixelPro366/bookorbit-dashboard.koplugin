@@ -1,6 +1,8 @@
-# Reading Dashboard for KOReader
+# Bookorbit Dashboard
 
-A board of reading widgets that sits over KOReader's file browser. It shows
+**The Bookorbit Dashboard but stripped of everything related to Bookorbit**
+
+A KOReader plugin: a board of reading widgets that sits over KOReader's file browser. It shows
 what you're reading, shelves of your books, reading statistics, a highlight
 and a word of the day, quick device toggles, and some decoration.
 Everything comes from your device. The plugin makes no network requests and
@@ -20,10 +22,10 @@ version and **not an official BookOrbit release** (see [Credits & license](#cred
 
 ## Install
 
-1. Copy the `dashboard.koplugin/` folder into `koreader/plugins/` on your device.
+1. Copy the `bookorbitdashboard.koplugin/` folder into `koreader/plugins/` on your device.
 2. Restart KOReader.
 3. Open it with the dashboard icon in KOReader's top menu bar (just before the
-   main menu), from **Tools → Reading dashboard**, or with a gesture.
+   main menu), from **Tools → Bookorbit Dashboard**, or with a gesture.
 
 The first time it opens, pick a starting layout (Reader, Stats or Library).
 Each layout has four pages: Home, Insights, Library and Decor.
@@ -43,7 +45,7 @@ Each layout has four pages: Home, Insights, Library and Decor.
 | *Chapter line* | A book's table of contents, saved when you close the book |
 
 Covers and metadata for books you haven't opened yet are read once, one book
-at a time in the background, and cached under `koreader/cache/readingdashboard/`.
+at a time in the background, and cached under `koreader/cache/bookorbitdashboard/`.
 
 ## Using it
 
@@ -64,14 +66,14 @@ at a time in the background, and cached under `koreader/cache/readingdashboard/`
   - *Board*: starting layout, tile style (Outline, Soft, Ink), interface size
     (1.0x–1.2x), and whether tapping Continue reading opens the book.
   - *Reading goal*: books per year for the Goal pace widget.
-- The **Dashboard: open** action can be assigned to any gesture or key in
+- The **Bookorbit Dashboard: open** action can be assigned to any gesture or key in
   KOReader's gesture/hotkey settings. Triggered from inside a book, it closes
   the book and opens the dashboard.
 
 ## Repository layout
 
 ```
-dashboard.koplugin/          the plugin (copy this folder to koreader/plugins/)
+bookorbitdashboard.koplugin/ the plugin (copy this folder to koreader/plugins/)
   main.lua                   lifecycle, menus, auto-open/home, gesture action
   dashboard_view.lua         the full-screen board widget and its actions
   dashboard_library.lua      local library: scan, metadata, covers, shelves

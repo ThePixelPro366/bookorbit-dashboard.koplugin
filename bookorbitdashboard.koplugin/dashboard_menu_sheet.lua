@@ -39,7 +39,7 @@ function MenuSheet.data(plugin, view)
     local now = os.time()
     local home = require("dashboard_library").homeDir() or ""
     local d = {
-        name = _("Dashboard"),
+        name = _("Bookorbit Dashboard"),
         host = (home:gsub("/+$", "")):match("([^/]+)$") or home,
         clock = datetime.secondsToHour(now, G_reader_settings:isTrue("twelve_hour_clock")),
         counts = {

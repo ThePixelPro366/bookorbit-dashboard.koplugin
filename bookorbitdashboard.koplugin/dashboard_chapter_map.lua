@@ -5,7 +5,7 @@ A book's table of contents only exists while the book is open, and opening a
 book just to draw a dashboard tile would be far too slow. So when a book
 closes its contents are copied (title, page and depth of each entry, plus the
 page count they were measured in) and written after the close has finished,
-to cache/readingdashboard/chapters/<md5>.lua. Only the most recent books are kept.
+to cache/bookorbitdashboard/chapters/<md5>.lua. Only the most recent books are kept.
 
 stations() turns a saved map into the stops the widget draws: the level of
 the contents that reads like chapters, without entries too short to matter.
@@ -30,7 +30,7 @@ local memo = {}
 
 local function chaptersDir()
     if not dir then
-        dir = require("datastorage"):getDataDir() .. "/cache/readingdashboard/chapters"
+        dir = require("datastorage"):getDataDir() .. "/cache/bookorbitdashboard/chapters"
         require("util").makePath(dir)
     end
     return dir

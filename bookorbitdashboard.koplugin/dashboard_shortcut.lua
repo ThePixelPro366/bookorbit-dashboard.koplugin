@@ -1,7 +1,7 @@
 --[[--
 One-tap gesture shortcut to open the dashboard.
 
-Binds a KOReader gesture to the "Dashboard: open" Dispatcher action in its
+Binds a KOReader gesture to the "Bookorbit Dashboard: open" Dispatcher action in its
 supported contexts, through the running Gestures plugin so its
 own settings file is the one written. A gesture that already does something
 is named before it is replaced, using KOReader's titles for the action.
@@ -12,7 +12,7 @@ local T = require("ffi/util").template
 
 local Shortcut = {}
 
-Shortcut.ACTION = "reading_dashboard_open"
+Shortcut.ACTION = "bookorbit_dashboard_open"
 
 local SECTIONS = { "gesture_fm", "gesture_reader" }
 

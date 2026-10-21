@@ -34,7 +34,7 @@ local scratch_path = nil
 
 local function scratchPath()
     if not scratch_path then
-        local dir = require("datastorage"):getDataDir() .. "/cache/readingdashboard"
+        local dir = require("datastorage"):getDataDir() .. "/cache/bookorbitdashboard"
         require("util").makePath(dir)
         scratch_path = dir .. "/board-art.svg"
     end

@@ -150,7 +150,7 @@ local written = {}
 
 local function cacheDir()
     if not dir then
-        dir = DataStorage:getDataDir() .. "/cache/readingdashboard/icons"
+        dir = DataStorage:getDataDir() .. "/cache/bookorbitdashboard/icons"
         util.makePath(dir)
     end
     return dir

@@ -171,7 +171,7 @@ local function openingBody(page, w, embedded)
 
     local shortcut_card
     if not Device:isTouchDevice() then
-        shortcut_card = MenuUI.card(w, { space(nil, px(12)), text(_("This device has no touchscreen. KOReader's keyboard shortcuts can open the dashboard: its action is \"Dashboard: open\"."), { s = 14, w = iw, lines = 3 }), space(nil, px(12)) })
+        shortcut_card = MenuUI.card(w, { space(nil, px(12)), text(_("This device has no touchscreen. KOReader's keyboard shortcuts can open the dashboard: its action is \"Bookorbit Dashboard: open\"."), { s = 14, w = iw, lines = 3 }), space(nil, px(12)) })
     else
         local g = Shortcut.find(Shortcut.current(page.gestures_data))
         local pill = MenuUI.pill(g and _("Change") or _("Pick one"), { kind = "outline", h = 36, s = 14, pad_x = 14, action = { kind = "view", view = "shortcut" } })
@@ -274,10 +274,10 @@ local function aboutBody(page, w, embedded)
         embedded and space(nil, px(12)) or false,
         MenuUI.card(w, {
             space(nil, px(12)),
-            text(_("Reading Dashboard"), { s = 16, b = true, w = iw }),
+            text(_("Bookorbit Dashboard"), { s = 16, b = true, w = iw }),
             text(T(_("Version %1 · modified %2"), plugin.PLUGIN_VERSION, plugin.MODIFIED_DATE), { s = 13, col = INK.g4, w = iw }),
             space(nil, px(8)),
-            para(_("A board of reading widgets over KOReader's file browser, built from this device's own books, history and statistics. It sends nothing anywhere.")),
+            para(_("The Bookorbit Dashboard but stripped of everything related to Bookorbit: a board of reading widgets over KOReader's file browser, built from this device's own books, history and statistics. It sends nothing anywhere.")),
             space(nil, px(8)),
             para(T(_("Source code: %1"), Settings.SOURCE_URL)),
             space(nil, px(12)),
@@ -404,10 +404,10 @@ local function build(page, sw, sh)
             }),
         }
     elseif view == "root" then
-        items = { MenuUI.pageHeader(w, _("Settings"), { sub = _("Dashboard") }), space(nil, px(8)) }
+        items = { MenuUI.pageHeader(w, _("Settings"), { sub = _("Bookorbit Dashboard") }), space(nil, px(8)) }
         for _i, item in ipairs(settingsList(page, w, false)) do table.insert(items, item) end
         table.insert(items, flex(px(8)))
-        table.insert(items, text(T(_("Reading Dashboard %1"), page.plugin.PLUGIN_VERSION), { s = 13, col = INK.g4, w = w, align = "center" }))
+        table.insert(items, text(T(_("Bookorbit Dashboard %1"), page.plugin.PLUGIN_VERSION), { s = 13, col = INK.g4, w = w, align = "center" }))
     else
         items = { MenuUI.pageHeader(w, titleOf(view), { sub = _("Settings") }), space(nil, px(8)) }
         for _i, item in ipairs(bodyFor(page, view, w, false)) do table.insert(items, item) end

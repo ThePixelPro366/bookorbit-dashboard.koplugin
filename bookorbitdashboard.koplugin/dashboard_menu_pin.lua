@@ -11,9 +11,9 @@ a hand-maintained menu-order file still wins.
 
 local logger = require("logger")
 
-local TAB_ID = "reading_dashboard_tab"
+local TAB_ID = "bookorbit_dashboard_tab"
 local BUTTONS = "KOMenu:menu_buttons"
-local MENU_ID = "reading_dashboard"
+local MENU_ID = "bookorbit_dashboard"
 
 local ORDER_MODULES = {
     "ui/elements/reader_menu_order",

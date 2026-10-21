@@ -27,7 +27,7 @@ modified versions, preservation, and trademarks.
 ----------------------------------------------------------------------------
 Modification notice
 
-This repository (Reading Dashboard for KOReader) is a modified version of
+This repository (Bookorbit Dashboard for KOReader) is a modified version of
 BookOrbit and is not an official BookOrbit release.
 
 Modified 2026-10-21: derived from the BookOrbit KOReader plugin
@@ -37,6 +37,6 @@ BookOrbit server (sign-in, sync, catalog, downloads, updates, achievements)
 was removed; the widget dashboard was kept and now reads only local KOReader
 data (home folder, reading history, book sidecars, collections, statistics
 and vocabulary databases). Modules were renamed from bookorbit_* to
-dashboard_*.
+dashboard_*, and the plugin folder is bookorbitdashboard.koplugin.
 
 Source: https://github.com/thepixelpro366/bookorbit-dashboard.koplugin
