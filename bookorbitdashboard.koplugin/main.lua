@@ -35,7 +35,7 @@ local Dashboard = WidgetContainer:extend{
     settings = nil,
 }
 
-Dashboard.PLUGIN_VERSION = "1.1.0"
+Dashboard.PLUGIN_VERSION = "1.2.0"
 Dashboard.MODIFIED_DATE = "2026-10-21"
 
 Updater.installInto(Dashboard)
