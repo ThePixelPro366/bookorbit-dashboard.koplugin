@@ -5,10 +5,16 @@ menu.
 
 KOReader caches its bundled menu-order tables and lets plugins extend them
 before the menu is built. Mutating those shared tables in memory preserves
-entries added by every plugin regardless of load order, and writes nothing:
-a hand-maintained menu-order file still wins.
+entries added by every plugin regardless of load order, and writes nothing.
+
+A menu-order file in settings/ (hand-made, or written by another plugin)
+replaces whole top-level lists when MenuSorter:mergeAndSort merges it, so a
+menu bar list there would drop the tab, and an unlisted tab becomes an
+orphan row in the first menu. mergeAndSort is therefore wrapped to pin the
+entries again after the user's file is merged.
 ]]
 
+local MenuSorter = require("ui/menusorter")
 local logger = require("logger")
 
 local TAB_ID = "bookorbit_dashboard_tab"
@@ -77,7 +83,30 @@ local function ensureAll()
     end
 end
 
+-- Merges the user's order file as MenuSorter does, then pins the tab and
+-- the Tools entry again, so the file cannot drop them. The original is not
+-- called: it would merge the file a second time.
+local function hookMergeAndSort()
+    if MenuSorter._bookorbit_dashboard_hooked then return end
+    MenuSorter._bookorbit_dashboard_hooked = true
+    function MenuSorter:mergeAndSort(config_prefix, item_table, order)
+        local user_order = self:readMSSettings(config_prefix)
+        for id, list in pairs(user_order or {}) do order[id] = list end
+        if type(order[BUTTONS]) == "table" then
+            -- Copy first: the list may come from the user's file.
+            local buttons = {}
+            for i, id in ipairs(order[BUTTONS]) do buttons[i] = id end
+            normalizeButtons(buttons, MenuPin.tab)
+            order[BUTTONS] = buttons
+            order[TAB_ID] = MenuPin.tab and {} or nil
+        end
+        if type(order.tools) == "table" then pinTools(order.tools) end
+        return self:sort(item_table, order)
+    end
+end
+
 function MenuPin.ensure(with_tab)
+    hookMergeAndSort()
     if MenuPin.done then return end
     MenuPin.done = true
     if with_tab ~= nil then MenuPin.tab = with_tab end

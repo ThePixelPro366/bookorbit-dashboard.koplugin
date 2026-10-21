@@ -35,7 +35,7 @@ local Dashboard = WidgetContainer:extend{
     settings = nil,
 }
 
-Dashboard.PLUGIN_VERSION = "1.2.0"
+Dashboard.PLUGIN_VERSION = "1.2.1"
 Dashboard.MODIFIED_DATE = "2026-10-21"
 
 Updater.installInto(Dashboard)
@@ -232,6 +232,9 @@ function Dashboard:addToMainMenu(menu_items)
     if self:menuBarIconEnabled() then
         -- A tab that acts as a button, like the reader's file browser tab.
         menu_items.bookorbit_dashboard_tab = {
+            -- Only shown if the tab ever ends up as an orphan row: without
+            -- text, KOReader's menu would crash on it.
+            text = _("Bookorbit Dashboard"),
             icon = self:menuBarIconName(),
             remember = false,
             callback = function()
