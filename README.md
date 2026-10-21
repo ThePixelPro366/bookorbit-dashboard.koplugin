@@ -5,8 +5,9 @@
 A KOReader plugin: a board of reading widgets that sits over KOReader's file browser. It shows
 what you're reading, shelves of your books, reading statistics, a highlight
 and a word of the day, quick device toggles, and some decoration.
-Everything comes from your device. The plugin makes no network requests and
-needs no account.
+Everything comes from your device. The only network request it makes is the
+optional daily update check against this repository's GitHub releases. No
+account is needed.
 
 This is the widget dashboard from the [BookOrbit](https://github.com/bookorbit/bookorbit)
 KOReader plugin with everything BookOrbit-specific removed. It is a modified
@@ -22,7 +23,10 @@ version and **not an official BookOrbit release** (see [Credits & license](#cred
 
 ## Install
 
-1. Copy the `bookorbitdashboard.koplugin/` folder into `koreader/plugins/` on your device.
+1. Download `bookorbitdashboard.koplugin.zip` from the
+   [latest release](https://github.com/ThePixelPro366/bookorbit-dashboard.koplugin/releases/latest)
+   and unzip it, then copy the `bookorbitdashboard.koplugin/` folder into
+   `koreader/plugins/` on your device.
 2. Restart KOReader.
 3. Open it with the dashboard icon in KOReader's top menu bar (just before the
    main menu), from **Tools → Bookorbit Dashboard**, or with a gesture.
@@ -70,6 +74,29 @@ at a time in the background, and cached under `koreader/cache/bookorbitdashboard
   KOReader's gesture/hotkey settings. Triggered from inside a book, it closes
   the book and opens the dashboard.
 
+## Updates
+
+The plugin updates itself from this repository's GitHub releases.
+
+- **Daily check:** once a day, and only when Wi-Fi is already on, it looks
+  for a newer release. You're asked once about each new version. Turn this
+  off in **Settings → About → Check daily**.
+- **Check by hand:** **Settings → About → Check for update**.
+- **Installing:** the release zip is downloaded and swapped in place of the
+  installed folder. The old folder is kept until the new one is in place.
+  Then restart KOReader.
+
+### Publishing a release
+
+1. Set `Dashboard.PLUGIN_VERSION` in `bookorbitdashboard.koplugin/main.lua`
+   to the new version (for example `1.2.0`) and commit it.
+2. Tag the commit and push the tag: `git tag v1.2.0 && git push origin v1.2.0`.
+
+The [Release workflow](.github/workflows/release.yml) checks that the tag
+matches `PLUGIN_VERSION`, zips the plugin (with the license files), and
+publishes the release with `bookorbitdashboard.koplugin.zip` attached. That
+zip is what devices download.
+
 ## Repository layout
 
 ```
@@ -79,6 +106,7 @@ bookorbitdashboard.koplugin/ the plugin (copy this folder to koreader/plugins/)
   dashboard_library.lua      local library: scan, metadata, covers, shelves
   dashboard_board_*.lua      layout, widgets, decor art, editing, storage
   dashboard_stats_reader.lua read-only queries on statistics.sqlite3
+  dashboard_updater.lua      update check and install from GitHub releases
   dashboard_menu_*.lua, dashboard_settings_page.lua, dashboard_dialog_ui.lua
 docs/screenshots/            emulator screenshots (KOReader 2026.07.2, 600x800)
 ```

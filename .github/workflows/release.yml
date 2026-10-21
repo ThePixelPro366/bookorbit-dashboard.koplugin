@@ -1,0 +1,36 @@
+# Publishes a release when a version tag (v1.2.3) is pushed. The plugin's
+# updater downloads the bookorbitdashboard.koplugin.zip asset it attaches.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the tag matches PLUGIN_VERSION
+        run: |
+          version=$(grep -oP 'PLUGIN_VERSION = "\K[^"]+' bookorbitdashboard.koplugin/main.lua)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "main.lua says $version but the tag is $GITHUB_REF_NAME"
+            exit 1
+          fi
+
+      - name: Build the plugin zip
+        run: |
+          cp LICENSE NOTICE ADDITIONAL_TERMS.md bookorbitdashboard.koplugin/
+          zip -r -X bookorbitdashboard.koplugin.zip bookorbitdashboard.koplugin
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" bookorbitdashboard.koplugin.zip \
+            --title "Bookorbit Dashboard $GITHUB_REF_NAME" --generate-notes

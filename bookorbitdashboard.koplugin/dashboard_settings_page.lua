@@ -262,6 +262,19 @@ local function readingBody(page, w, embedded)
     }
 end
 
+-- Check for update, or Update to the version a check found.
+local function updateRow(plugin, iw)
+    local latest = plugin.settings.update_latest
+    if plugin:hasKnownUpdate() then
+        return MenuUI.row(iw, { icon = "download", label = T(_("Update to %1"), latest), sub = T(_("You have %1"), plugin.PLUGIN_VERSION),
+            trail = MenuUI.chip(_("New"), { ink = true }), chevron = true, action = { kind = "update" } })
+    end
+    local checked = tonumber(plugin.settings.update_checked_at)
+    return MenuUI.row(iw, { icon = "refresh-cw", label = _("Check for update"),
+        sub = checked and T(_("Up to date · checked %1"), MenuUI.ago(checked) or "") or _("Not checked yet"),
+        chevron = true, action = { kind = "check-update" } })
+end
+
 local function aboutBody(page, w, embedded)
     local plugin = page.plugin
     local iw = MenuUI.rowsIn(w)
@@ -277,11 +290,17 @@ local function aboutBody(page, w, embedded)
             text(_("Bookorbit Dashboard"), { s = 16, b = true, w = iw }),
             text(T(_("Version %1 · modified %2"), plugin.PLUGIN_VERSION, plugin.MODIFIED_DATE), { s = 13, col = INK.g4, w = iw }),
             space(nil, px(8)),
-            para(_("The Bookorbit Dashboard but stripped of everything related to Bookorbit: a board of reading widgets over KOReader's file browser, built from this device's own books, history and statistics. It sends nothing anywhere.")),
+            para(_("The Bookorbit Dashboard but stripped of everything related to Bookorbit: a board of reading widgets over KOReader's file browser, built from this device's own books, history and statistics. Its only network request is the update check below.")),
             space(nil, px(8)),
             para(T(_("Source code: %1"), Settings.SOURCE_URL)),
             space(nil, px(12)),
         }),
+        space(nil, px(16)),
+        MenuUI.section(w, _("Updates"), MenuUI.group(w, {
+            updateRow(plugin, iw),
+            MenuUI.row(iw, { icon = "calendar-check", label = _("Check daily"), sub = _("Once a day, when Wi-Fi is on"),
+                toggle = plugin.settings.update_check ~= false, action = { kind = "flag", key = "update_check", default_on = true } }),
+        })),
         space(nil, px(16)),
         MenuUI.section(w, _("Legal notices"), MenuUI.card(w, {
             space(nil, px(12)),
@@ -481,6 +500,10 @@ local function onAction(page, action)
             end)
             page:refresh()
         end)
+    elseif kind == "check-update" then
+        plugin:checkForUpdate(true, function() page:refresh() end)
+    elseif kind == "update" then
+        plugin:checkForUpdate(true, function() page:refresh() end)
     elseif kind == "upstream" then
         local size = math.floor(math.min(Device.screen:getWidth(), Device.screen:getHeight()) * 0.6)
         UIManager:show(require("ui/widget/qrmessage"):new{ text = Settings.UPSTREAM_URL, width = size, height = size })

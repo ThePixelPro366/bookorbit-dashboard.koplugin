@@ -23,6 +23,7 @@ local BoardStore = require("dashboard_board_store")
 local ChapterMap = require("dashboard_chapter_map")
 local Library = require("dashboard_library")
 local MenuPin = require("dashboard_menu_pin")
+local Updater = require("dashboard_updater")
 
 local SETTINGS_KEY = "bookorbit_dashboard"
 -- A closed book returns to the dashboard only if the file browser shows up
@@ -34,8 +35,10 @@ local Dashboard = WidgetContainer:extend{
     settings = nil,
 }
 
-Dashboard.PLUGIN_VERSION = "1.0.0"
+Dashboard.PLUGIN_VERSION = "1.1.0"
 Dashboard.MODIFIED_DATE = "2026-10-21"
+
+Updater.installInto(Dashboard)
 
 Dashboard.default_settings = {
     auto_open = "off",
@@ -61,6 +64,15 @@ function Dashboard:init()
     self:onDispatcherRegisterActions()
     self.ui.menu:registerToMainMenu(self)
     self:onStart()
+    if not self.in_reader then
+        -- The daily update check, a little after the file browser settles.
+        UIManager:scheduleIn(15, function() self:maybeCheckForUpdate() end)
+    end
+end
+
+-- Wi-Fi coming up is a good moment for the daily update check.
+function Dashboard:onNetworkConnected()
+    if not self.in_reader then self:maybeCheckForUpdate() end
 end
 
 function Dashboard:saveSettings()
