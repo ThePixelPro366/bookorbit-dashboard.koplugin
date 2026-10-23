@@ -30,7 +30,7 @@ Modification notice
 This repository (Bookorbit Dashboard for KOReader) is a modified version of
 BookOrbit and is not an official BookOrbit release.
 
-Modified 2026-10-21: derived from the BookOrbit KOReader plugin
+Modified 2026-10-23: derived from the BookOrbit KOReader plugin
 (koreader-plugin/bookorbit.koplugin, upstream commit
 99aa7dce705986eac29a8f73aa65331de5f50680). Everything that talks to a
 BookOrbit server (sign-in, sync, catalog, downloads, updates, achievements)
