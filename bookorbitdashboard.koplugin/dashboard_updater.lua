@@ -45,15 +45,22 @@ end
 
 -- ----------------------------------------------------------------- network
 -- One GET, following redirects (GitHub serves assets from another host).
--- sink: an ltn12 sink, or nil to collect the body. Returns the body (when
--- collected) or true, or nil + error.
-local function get(url, sink, block_timeout, total_timeout)
+-- make_sink: returns a fresh ltn12 sink for each request, since a redirect
+-- has a body of its own and a file sink closes its file when a body ends; or
+-- nil to collect the body. Returns the body (when collected) or true, or
+-- nil + error.
+local function get(url, make_sink, block_timeout, total_timeout)
     local http = require("socket.http")
     local ltn12 = require("ltn12")
     local socket = require("socket")
     local socketutil = require("socketutil")
     local chunks = {}
     for _hop = 1, 5 do
+        local sink
+        if make_sink then
+            sink = make_sink()
+            if not sink then return nil, "cannot write the download" end
+        end
         socketutil:set_timeout(block_timeout or socketutil.LARGE_BLOCK_TIMEOUT, total_timeout or socketutil.LARGE_TOTAL_TIMEOUT)
         local code, headers, status = socket.skip(1, http.request{
             url = url,
@@ -139,9 +146,13 @@ end
 function Updater.download(url, path)
     local ltn12 = require("ltn12")
     local socketutil = require("socketutil")
-    local f = io.open(path, "wb")
-    if not f then return nil, "cannot write " .. path end
-    local ok, err = get(url, ltn12.sink.file(f), socketutil.FILE_BLOCK_TIMEOUT, socketutil.FILE_TOTAL_TIMEOUT * 3)
+    -- Each request starts the file over, so a redirect's body never ends up
+    -- in the zip.
+    local function fileSink()
+        local f = io.open(path, "wb")
+        return f and ltn12.sink.file(f)
+    end
+    local ok, err = get(url, fileSink, socketutil.FILE_BLOCK_TIMEOUT, socketutil.FILE_TOTAL_TIMEOUT * 3)
     if not ok then os.remove(path) end
     return ok, err
 end
@@ -329,7 +340,7 @@ function Mixin:applyUpdate(latest)
             if not completed then return end
             result = result or {}
             if not result.ok then
-                Toast.error(T(_("Update failed: %1"), tostring(result.err)))
+                Toast.error(T(_("Update failed: %1"), tostring(result.err or _("unexpected error"))))
                 return
             end
             require("dashboard_dialog_ui").confirm{
