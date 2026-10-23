@@ -68,7 +68,9 @@ at a time in the background, and cached under `koreader/cache/bookorbitdashboard
     at startup, or make the dashboard **home** (at startup and whenever you
     close a book). Also a one-tap gesture shortcut and the menu bar icon.
   - *Board*: starting layout, tile style (Outline, Soft, Ink), interface size
-    (1.0x–1.2x), and whether tapping Continue reading opens the book.
+    (1.0x–1.2x), whether tapping Continue reading opens the book, and
+    whether **Library** opens KOReader's file browser (and whatever covers or
+    library plugin you use there, such as Bookshelf) instead of a book list.
   - *Reading goal*: books per year for the Goal pace widget.
 - The **Bookorbit Dashboard: open** action can be assigned to any gesture or key in
   KOReader's gesture/hotkey settings. Triggered from inside a book, it closes

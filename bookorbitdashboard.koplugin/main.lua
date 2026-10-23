@@ -29,6 +29,8 @@ local SETTINGS_KEY = "bookorbit_dashboard"
 -- A closed book returns to the dashboard only if the file browser shows up
 -- within this many seconds of the reader closing.
 local RETURN_HOME_WINDOW = 10
+-- Seconds after that return to check nothing ended up over the dashboard.
+local RAISE_AFTER_RETURN = 1
 
 local Dashboard = WidgetContainer:extend{
     name = "bookorbitdashboard",
@@ -86,11 +88,31 @@ end
 
 -- ------------------------------------------------------------------ open
 function Dashboard:isOpen()
-    return self.view ~= nil and not self.view.closed
+    return self.board_view ~= nil and not self.board_view.closed
+end
+
+-- Moves an open dashboard back to the top of the window stack. Another home
+-- screen (Bookshelf, for one) raises itself the same way when a book
+-- closes, which would leave the dashboard hidden underneath it.
+function Dashboard:raiseDashboard()
+    local view = self.board_view
+    if not self:isOpen() or UIManager:getTopmostVisibleWidget() == view then return end
+    local stack = UIManager._window_stack or {}
+    for i, entry in ipairs(stack) do
+        if entry.widget == view then
+            table.remove(stack, i)
+            table.insert(stack, entry)
+            UIManager:setDirty(view, "ui")
+            return
+        end
+    end
 end
 
 function Dashboard:openDashboard()
-    if self:isOpen() then return self.view end
+    if self:isOpen() then
+        self:raiseDashboard()
+        return self.board_view
+    end
     if self.in_reader then
         -- The dashboard lives over the file browser: close the book and come
         -- back to it there.
@@ -100,19 +122,19 @@ function Dashboard:openDashboard()
         return
     end
     local DashboardView = require("dashboard_view")
-    self.view = DashboardView:new{
+    self.board_view = DashboardView:new{
         plugin = self,
         settings = self.settings,
-        close_callback = function() self.view = nil end,
+        close_callback = function() self.board_view = nil end,
     }
-    UIManager:show(self.view)
-    return self.view
+    UIManager:show(self.board_view)
+    return self.board_view
 end
 
 function Dashboard:onBookorbitDashboardOpen()
-    if self:isOpen() then
+    if self:isOpen() and UIManager:getTopmostVisibleWidget() == self.board_view then
         -- Already open: the shortcut opens its menu instead.
-        if UIManager:getTopmostVisibleWidget() == self.view then self:openMenuSheet(self.view) end
+        self:openMenuSheet(self.board_view)
         return true
     end
     self:openDashboard()
@@ -140,7 +162,9 @@ function Dashboard:onShow()
     PluginShare.bookorbit_dashboard_once = nil
     if os.time() - closed_at > RETURN_HOME_WINDOW then return end
     if not once and self.settings.auto_open ~= "home" then return end
-    if not self:isOpen() then self:openDashboard() end
+    self:openDashboard()
+    -- The book's close can still bring another home screen up over it.
+    UIManager:scheduleIn(RAISE_AFTER_RETURN, function() self:raiseDashboard() end)
 end
 
 -- A book closing: its chapters are kept for the Chapter line, and the
@@ -224,7 +248,7 @@ function Dashboard:addToMainMenu(menu_items)
             {
                 text = _("Settings"),
                 callback = function()
-                    UIManager:tickAfterNext(function() self:openSettings(self.view) end)
+                    UIManager:tickAfterNext(function() self:openSettings(self.board_view) end)
                 end,
             },
         },

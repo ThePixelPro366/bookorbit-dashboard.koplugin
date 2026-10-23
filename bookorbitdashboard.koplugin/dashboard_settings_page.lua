@@ -216,6 +216,9 @@ local function boardBody(page, w, embedded)
         MenuUI.row(iw, { icon = "layout-grid", label = _("Customize the board"), sub = _("Move, resize, add and remove widgets"), chevron = true, action = { kind = "customize" } }),
         MenuUI.row(iw, { icon = "book-open", label = _("Tap Continue reading"), sub = settings.tap_resumes ~= false and _("Opens the book") or _("Shows the book's actions"),
             toggle = settings.tap_resumes ~= false, action = { kind = "flag", key = "tap_resumes", default_on = true } }),
+        MenuUI.row(iw, { icon = "folder-open", label = _("Library opens the file browser"),
+            sub = settings.library_opens_files and _("With your covers or library plugin") or _("Opens the dashboard's book list"),
+            toggle = settings.library_opens_files == true, action = { kind = "flag", key = "library_opens_files" } }),
     })
     local preset_labels = { _("Reader"), _("Stats"), _("Library") }
     local tile_labels = { _("Outline"), _("Soft"), _("Ink") }

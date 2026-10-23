@@ -1157,7 +1157,12 @@ end
 
 -- ------------------------------------------------------------- shelves
 local LINK_ACTIONS = {
-    library = function(self) self:boardOpenShelf({ source = "all", props = { source = "all", title = _("All books") } }) end,
+    library = function(self)
+        -- Optionally the file browser instead, with whatever covers or
+        -- library plugin dresses it.
+        if self.settings.library_opens_files then return self:closeTo(function(fm) fm:onHome() end) end
+        self:boardOpenShelf({ source = "all", props = { source = "all", title = _("All books") } })
+    end,
     series = function(self) self:showNameList("series") end,
     authors = function(self) self:showNameList("author") end,
     collections = function(self)
