@@ -290,7 +290,7 @@ function Dashboard:onMenuSheetAction(page, view, action)
         page:close()
         self:customizeBoard(view)
     elseif kind == "exit" then
-        after(function() if view then view:onClose() end end)
+        after(function() if view then view:closeToHome() end end)
     elseif kind == "search" then
         after(function() if view then view:boardRun({ kind = "search" }) end end)
     elseif kind == "link" then

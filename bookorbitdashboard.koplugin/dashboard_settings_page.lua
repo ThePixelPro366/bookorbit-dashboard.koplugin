@@ -20,6 +20,7 @@ local BoardUI = require("dashboard_board_ui")
 local MenuPage = require("dashboard_menu_page")
 local MenuUI = require("dashboard_menu_ui")
 local Shortcut = require("dashboard_shortcut")
+local StartScreen = require("dashboard_start_screen")
 
 local INK = BoardMetrics.INK
 local px = BoardMetrics.px
@@ -91,6 +92,7 @@ local function titleOf(view)
     end
     if view == "about" then return _("About") end
     if view == "shortcut" then return _("Shortcut") end
+    if view == "library" then return _("Library and Files") end
     return _("Settings")
 end
 
@@ -208,6 +210,50 @@ local function openingBody(page, w, embedded)
     }
 end
 
+-- Where Library and Files lead: the book list, the file browser, or each
+-- home screen a plugin adds to KOReader's Start with menu.
+-- { label, sub, value } each, and the value in use.
+local function libraryChoices(settings)
+    local target = StartScreen.target(settings)
+    local choices = {
+        { _("Book list"), _("Library opens the dashboard's list, Files closes it"), "list" },
+        { _("File browser"), _("With your covers plugin, if you use one"), "files" },
+    }
+    local listed = false
+    for _i, home in ipairs(StartScreen.list(require("apps/filemanager/filemanager").instance)) do
+        table.insert(choices, { home.label, home.current and _("Your start screen") or _("Home screen plugin"), home.id })
+        listed = listed or home.id == target
+    end
+    -- A choice whose plugin cannot be seen from here (in a book) or is gone.
+    if StartScreen.isHome(target) and not listed then
+        table.insert(choices, { target:sub(1, 1):upper() .. target:sub(2), _("Not found, so the file browser opens"), target })
+    end
+    return choices, target
+end
+
+local function libraryLabel(settings)
+    local choices, target = libraryChoices(settings)
+    for _i, c in ipairs(choices) do
+        if c[3] == target then return c[1] end
+    end
+end
+
+local function libraryBody(page, w, embedded)
+    local iw = MenuUI.rowsIn(w)
+    local choices, target = libraryChoices(page.plugin.settings)
+    local rows = {}
+    for _i, c in ipairs(choices) do
+        table.insert(rows, MenuUI.row(iw, { label = c[1], sub = c[2], radio = c[3] == target, h = 64, action = { kind = "library-target", value = c[3] } }))
+    end
+    return {
+        embedded and text(_("Library and Files"), { s = 18, b = true, w = w }) or false,
+        embedded and space(nil, px(12)) or false,
+        MenuUI.group(w, rows, { inset = 0 }),
+        space(nil, px(12)),
+        MenuUI.card(w, { space(nil, px(12)), text(_("Home screens come from KOReader's Start with menu, where plugins such as Bookshelf and Simple UI add themselves."), { s = 13, col = INK.g4, w = iw, lines = 3, bg = INK.ge }), space(nil, px(12)) }, { fill = true }),
+    }
+end
+
 local function boardBody(page, w, embedded)
     local settings = page.plugin.settings
     local state = BoardStore.read(settings)
@@ -216,9 +262,7 @@ local function boardBody(page, w, embedded)
         MenuUI.row(iw, { icon = "layout-grid", label = _("Customize the board"), sub = _("Move, resize, add and remove widgets"), chevron = true, action = { kind = "customize" } }),
         MenuUI.row(iw, { icon = "book-open", label = _("Tap Continue reading"), sub = settings.tap_resumes ~= false and _("Opens the book") or _("Shows the book's actions"),
             toggle = settings.tap_resumes ~= false, action = { kind = "flag", key = "tap_resumes", default_on = true } }),
-        MenuUI.row(iw, { icon = "folder-open", label = _("Library opens the file browser"),
-            sub = settings.library_opens_files and _("With your covers or library plugin") or _("Opens the dashboard's book list"),
-            toggle = settings.library_opens_files == true, action = { kind = "flag", key = "library_opens_files" } }),
+        MenuUI.row(iw, { icon = "folder-open", label = _("Library and Files open"), sub = libraryLabel(settings), chevron = true, action = { kind = "view", view = "library" } }),
     })
     local preset_labels = { _("Reader"), _("Stats"), _("Library") }
     local tile_labels = { _("Outline"), _("Soft"), _("Ink") }
@@ -320,7 +364,7 @@ local function aboutBody(page, w, embedded)
     }
 end
 
-local BODIES = { opening = openingBody, board = boardBody, reading = readingBody, about = aboutBody }
+local BODIES = { opening = openingBody, board = boardBody, reading = readingBody, about = aboutBody, library = libraryBody }
 
 local function bodyFor(page, view, w, embedded)
     return (BODIES[view] or openingBody)(page, w, embedded)
@@ -454,6 +498,11 @@ local function onAction(page, action)
         else
             table.insert(page.stack, action.view)
         end
+        page:refresh()
+    elseif kind == "library-target" then
+        settings.library_target = action.value
+        settings.library_opens_files = nil
+        plugin:saveSettings()
         page:refresh()
     elseif kind == "open-mode" then
         settings.auto_open = action.mode

@@ -45,6 +45,7 @@ local BoardStore = require("dashboard_board_store")
 local BoardUI = require("dashboard_board_ui")
 local BoardWidgets = require("dashboard_board_widgets")
 local Library = require("dashboard_library")
+local StartScreen = require("dashboard_start_screen")
 
 local Screen = Device.screen
 local INK = BoardMetrics.INK
@@ -949,7 +950,7 @@ function DashboardView:boardRun(action, tile)
     elseif kind == "rotate" then
         UIManager:broadcastEvent(Event:new("IterateRotation"))
     elseif kind == "files" then
-        self:onClose()
+        self:closeToHome()
     elseif kind == "dust-next" then
         self:boardDustNext()
     elseif kind == "dust-remove" then
@@ -968,6 +969,17 @@ function DashboardView:closeTo(fn)
     self:onClose()
     local fm = fileManager()
     if fm and fn then UIManager:nextTick(function() fn(fm) end) end
+end
+
+-- Closes the dashboard to the home screen chosen in Settings (Bookshelf,
+-- Simple UI, ...), or else to the file browser, at the home folder when
+-- home_folder is set.
+function DashboardView:closeToHome(home_folder)
+    local target = StartScreen.target(self.settings)
+    self:closeTo(function(fm)
+        if StartScreen.isHome(target) and StartScreen.open(fm, target) then return end
+        if home_folder then fm:onHome() end
+    end)
 end
 
 function DashboardView:openBook(book)
@@ -1158,9 +1170,8 @@ end
 -- ------------------------------------------------------------- shelves
 local LINK_ACTIONS = {
     library = function(self)
-        -- Optionally the file browser instead, with whatever covers or
-        -- library plugin dresses it.
-        if self.settings.library_opens_files then return self:closeTo(function(fm) fm:onHome() end) end
+        -- Optionally a plugin's home screen or the file browser instead.
+        if StartScreen.target(self.settings) ~= "list" then return self:closeToHome(true) end
         self:boardOpenShelf({ source = "all", props = { source = "all", title = _("All books") } })
     end,
     series = function(self) self:showNameList("series") end,
