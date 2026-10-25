@@ -159,7 +159,9 @@ function BoardData.invalidateLocal()
 end
 
 -- Minutes per day for the heatmap's 52 weeks, oldest first, from this
--- device's statistics. Days after today are nil.
+-- device's statistics. Days after today are nil. Kept while the statistics
+-- read and the day stay the same.
+local year_cache = {}
 function BoardData.yearMinutes(now)
     now = now or os.time()
     local today = dayStart(now)
@@ -167,6 +169,9 @@ function BoardData.yearMinutes(now)
     local last_saturday = today + (6 - dow) * DAY
     local start = last_saturday - (BoardData.HEATMAP_DAYS - 1) * DAY
     local daily = BoardData.localDaily(now)
+    if year_cache.daily == daily and year_cache.today == today then
+        return year_cache.values, start + 12 * 3600, today
+    end
     local values = {}
     for i = 1, BoardData.HEATMAP_DAYS do
         local t = start + (i - 1) * DAY + 12 * 3600
@@ -178,6 +183,7 @@ function BoardData.yearMinutes(now)
             values[i] = math.floor(local_min + 0.5)
         end
     end
+    year_cache = { daily = daily, today = today, values = values }
     return values, start + 12 * 3600, today
 end
 
@@ -553,6 +559,8 @@ function BoardData.dust(books, now, skip)
 end
 
 -- ------------------------------------------------------------------ build
+local decorated_cache = {}
+
 -- view: the dashboard view (for its settings).
 -- context: the dashboard context (the body from dashboard_library).
 function BoardData.build(view, context, now)
@@ -594,16 +602,28 @@ function BoardData.build(view, context, now)
         return out
     end
 
-    d.continue_reading = decorateAll(body.continueReading)
-    local shelves = type(body.boardShelves) == "table" and body.boardShelves or {}
-    d.shelves = {}
-    for source, books in pairs(shelves) do
-        -- The never-opened list is the dust widget's pool: no covers needed.
-        d.shelves[source] = source == "unopened" and books or decorateAll(books)
+    -- The decorated lists stay the same while the body, what is known about
+    -- the books, their covers and the minute ("5 min ago") do. A page flip
+    -- builds this data only to check the cached pages are current, so it
+    -- reuses them.
+    local lists_key = table.concat({ tostring(body), Library.books_version or 0, Library.cover_version or 0,
+        math.floor(now / 60) }, "|")
+    local lists = decorated_cache.key == lists_key and decorated_cache.lists or nil
+    if not lists then
+        lists = { continue_reading = decorateAll(body.continueReading), shelves = {} }
+        local shelves = type(body.boardShelves) == "table" and body.boardShelves or {}
+        for source, books in pairs(shelves) do
+            -- The never-opened list is the dust widget's pool: no covers needed.
+            lists.shelves[source] = source == "unopened" and books or decorateAll(books)
+        end
+        lists.shelves["random"] = lists.shelves["random"] or decorateAll(body.discover)
+        lists.shelves["in-progress"] = lists.shelves["in-progress"] or decorateAll(body.continueReading)
+        lists.shelves["finished"] = decorateAll(body.finishedThisYear)
+        decorated_cache = { key = lists_key, lists = lists }
     end
-    d.shelves["random"] = d.shelves["random"] or decorateAll(body.discover)
-    d.shelves["in-progress"] = d.shelves["in-progress"] or decorateAll(body.continueReading)
-    d.shelves["finished"] = decorateAll(body.finishedThisYear)
+    d.continue_reading = lists.continue_reading
+    d.shelves = {}
+    for source, books in pairs(lists.shelves) do d.shelves[source] = books end
 
     local counts = type(body.browseCounts) == "table" and body.browseCounts or {}
     d.counts = {
@@ -675,7 +695,8 @@ function BoardData.build(view, context, now)
     if lead and lead.on_device then
         lead_md5 = Library.md5(lead)
         d.forecast = BoardData.forecast(lead, lead_md5, now)
-        if d.forecast then lead.minutes_left = d.forecast.minutes_left end
+        -- Set every build: the decorated lead is shared while its lists are.
+        lead.minutes_left = d.forecast and d.forecast.minutes_left or nil
     end
     -- Everything a widget's layout choice can depend on. Widgets remember
     -- their choice per fingerprint (see BoardUI.pick).

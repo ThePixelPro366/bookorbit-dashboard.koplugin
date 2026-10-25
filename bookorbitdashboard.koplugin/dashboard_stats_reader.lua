@@ -164,29 +164,45 @@ end
 -- Reading sessions since `since`: page events grouped into a session until a
 -- gap of more than ten minutes. Returns the session count, the longest and
 -- average session in seconds and the pages turned per hour, or nil when
--- there is no reading. One pass over the period's events.
+-- there is no reading. One pass over the period's events, in start order
+-- (the start_time index gives that order): on an e-reader this is several
+-- times faster than grouping with window functions in SQL.
 function Session:sessionRecords(since)
-    local res = self:select([[
-        WITH ev AS (
-            SELECT start_time AS s, MIN(duration, 600) AS d,
-                CASE WHEN start_time - LAG(start_time + MIN(duration, 600)) OVER (ORDER BY start_time) <= 600 THEN 0 ELSE 1 END AS brk
-            FROM page_stat_data WHERE start_time >= ?
-        ), grouped AS (
-            SELECT d, SUM(brk) OVER (ORDER BY s ROWS UNBOUNDED PRECEDING) AS g FROM ev
-        ), sessions AS (
-            SELECT SUM(d) AS secs, COUNT(*) AS pages FROM grouped GROUP BY g
-        )
-        SELECT COUNT(*), COALESCE(MAX(secs), 0), COALESCE(AVG(secs), 0), COALESCE(SUM(pages), 0), COALESCE(SUM(secs), 0)
-        FROM sessions WHERE secs >= 60;]], { since })
-    if not res then return nil end
-    local count = tonumber(res[1][1]) or 0
+    if not self.conn then return nil end
+    local stmt = self.conn:prepare(
+        "SELECT start_time, MIN(duration, 600) FROM page_stat_data WHERE start_time >= ? ORDER BY start_time;")
+    local count, longest, total_secs, total_pages = 0, 0, 0, 0
+    local secs, pages, last_end = 0, 0, nil
+    local function endSession()
+        if pages > 0 and secs >= 60 then
+            count = count + 1
+            if secs > longest then longest = secs end
+            total_secs, total_pages = total_secs + secs, total_pages + pages
+        end
+    end
+    local ok, err = pcall(function()
+        stmt:bind(since)
+        local row = stmt:step()
+        while row do
+            local s, d = tonumber(row[1]) or 0, tonumber(row[2]) or 0
+            if last_end and s - last_end > 600 then
+                endSession()
+                secs, pages = 0, 0
+            end
+            secs, pages = secs + d, pages + 1
+            last_end = s + d
+            row = stmt:step(row)
+        end
+    end)
+    pcall(stmt.close, stmt)
+    if not ok then error(err) end
+    endSession()
     if count == 0 then return nil end
-    local total = tonumber(res[5][1]) or 0
     return {
         sessions = count,
-        longest_seconds = tonumber(res[2][1]) or 0,
-        average_seconds = tonumber(res[3][1]) or 0,
-        pages_per_hour = total > 0 and (tonumber(res[4][1]) or 0) * 3600 / total or 0,
+        longest_seconds = longest,
+        average_seconds = total_secs / count,
+        pages_per_hour = total_secs > 0 and total_pages * 3600 / total_secs or 0,
     }
 end
 
@@ -251,10 +267,23 @@ local function withSession(fn)
     return result
 end
 
+-- The streak and the heatmap both ask for about a year of days when the
+-- board opens: one query answers both while it is fresh. Callers look days
+-- up by key, so an answer reaching further back serves them as well.
+local DAILY_TTL = 60
+local daily_memo = nil
+
 function StatsReader.getDailySeconds(since)
-    return withSession(function(session)
+    local now = os.time()
+    local memo = daily_memo
+    if memo and memo.since <= since and now - memo.at >= 0 and now - memo.at < DAILY_TTL then
+        return memo.value
+    end
+    local value, err = withSession(function(session)
         return session:dailySeconds(since)
     end)
+    if value then daily_memo = { since = since, at = now, value = value } end
+    return value, err
 end
 
 function StatsReader.getHourMinutes(since)
