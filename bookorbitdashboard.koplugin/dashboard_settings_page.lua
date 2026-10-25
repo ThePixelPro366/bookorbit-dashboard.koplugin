@@ -203,6 +203,13 @@ local function openingBody(page, w, embedded)
         embedded and text(_("Opening the dashboard"), { s = 18, b = true, w = w }) or false,
         embedded and space(nil, px(12)) or false,
         MenuUI.section(w, _("When KOReader starts"), MenuUI.group(w, radios, { inset = 0 })),
+        space(nil, px(12)),
+        MenuUI.group(w, {
+            MenuUI.row(iw, { icon = "zap", label = _("Prepare in the background"),
+                sub = page.plugin.settings.prewarm ~= false and _("Built while the file browser is idle, so it opens at once")
+                    or _("Built when you open it"),
+                toggle = page.plugin.settings.prewarm ~= false, action = { kind = "flag", key = "prewarm", default_on = true } }),
+        }),
         space(nil, px(16)),
         MenuUI.section(w, _("Shortcut"), shortcut_card),
         space(nil, px(16)),

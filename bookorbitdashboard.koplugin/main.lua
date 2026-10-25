@@ -31,6 +31,10 @@ local SETTINGS_KEY = "bookorbit_dashboard"
 local RETURN_HOME_WINDOW = 10
 -- Seconds after that return to check nothing ended up over the dashboard.
 local RAISE_AFTER_RETURN = 1
+-- The dashboard is built ahead of time once the file browser has been up
+-- this long, and the device left alone for PREWARM_QUIET seconds.
+local PREWARM_AFTER = 8
+local PREWARM_QUIET = 5
 
 local Dashboard = WidgetContainer:extend{
     name = "bookorbitdashboard",
@@ -47,6 +51,7 @@ Dashboard.default_settings = {
     menu_bar_icon = true,
     ui_scale = 1.05,
     tap_resumes = true,
+    prewarm = true,
 }
 
 function Dashboard:init()
@@ -69,6 +74,7 @@ function Dashboard:init()
     if not self.in_reader then
         -- The daily update check, a little after the file browser settles.
         UIManager:scheduleIn(15, function() self:maybeCheckForUpdate() end)
+        self:schedulePrewarm(PREWARM_AFTER)
     end
 end
 
@@ -124,23 +130,77 @@ function Dashboard:openDashboard()
     local kept = self.closed_view
     self.closed_view = nil
     if kept and kept:canReopen() then
-        -- The last dashboard, with its pages still drawn.
+        -- The last dashboard (or the one built ahead), its pages still drawn.
         self.board_view = kept
         kept:reopen()
     else
         if kept then kept:boardFreePages() end
-        local DashboardView = require("dashboard_view")
-        self.board_view = DashboardView:new{
-            plugin = self,
-            settings = self.settings,
-            close_callback = function()
-                self.closed_view = self.board_view
-                self.board_view = nil
-            end,
-        }
+        self.board_view = self:newView()
     end
     UIManager:show(self.board_view)
     return self.board_view
+end
+
+function Dashboard:newView()
+    local view
+    view = require("dashboard_view"):new{
+        plugin = self,
+        settings = self.settings,
+        close_callback = function()
+            self.closed_view = view
+            if self.board_view == view then self.board_view = nil end
+        end,
+    }
+    return view
+end
+
+-- ------------------------------------------------------------- prewarm
+-- Building the dashboard the first time takes about a second on an
+-- e-reader (reading the library, fonts, covers). While the file browser
+-- sits idle it is built once, out of sight, so opening it is a blit. It
+-- waits until the device has been left alone for a few seconds, and is
+-- skipped while anything covers the file browser.
+function Dashboard:schedulePrewarm(delay)
+    if self._prewarm_task then UIManager:unschedule(self._prewarm_task) end
+    if self.in_reader or self.settings.prewarm == false then return end
+    if not self._input_hook and UIManager.event_hook then
+        self._input_hook = function() self._last_input = os.time() end
+        self._last_input = os.time()
+        UIManager.event_hook:register("InputEvent", self._input_hook)
+    end
+    self._prewarm_task = function()
+        self._prewarm_task = nil
+        self:prewarm()
+    end
+    UIManager:scheduleIn(delay, self._prewarm_task)
+end
+
+function Dashboard:prewarm()
+    if self.in_reader or self.settings.prewarm == false then return self:stopPrewarm() end
+    -- Opened already, or kept from the last time.
+    if self.board_view or self.closed_view then return self:stopPrewarm() end
+    local quiet_for = os.time() - (self._last_input or 0)
+    if quiet_for < PREWARM_QUIET or UIManager:getTopmostVisibleWidget() ~= self.ui then
+        return self:schedulePrewarm(math.max(1, PREWARM_QUIET - quiet_for))
+    end
+    local ok, view = pcall(self.newView, self)
+    if ok and view then
+        view:park()
+    else
+        logger.warn("Dashboard: could not build ahead:", view)
+    end
+    self:stopPrewarm()
+end
+
+function Dashboard:stopPrewarm()
+    if self._prewarm_task then
+        UIManager:unschedule(self._prewarm_task)
+        self._prewarm_task = nil
+    end
+    if self._input_hook then
+        UIManager.event_hook:unregister("InputEvent", self._input_hook)
+        self._input_hook = nil
+    end
 end
 
 -- The closed dashboard's pages, kept for reopening it, are freed with
@@ -200,7 +260,10 @@ function Dashboard:onCloseDocument()
 end
 
 function Dashboard:onCloseWidget()
-    if not self.in_reader then self:freeClosedView() end
+    if not self.in_reader then
+        self:stopPrewarm()
+        self:freeClosedView()
+    end
     if self.in_reader and self.settings.auto_open == "home" and not PluginShare.bookorbit_dashboard_return then
         PluginShare.bookorbit_dashboard_return = os.time()
     end

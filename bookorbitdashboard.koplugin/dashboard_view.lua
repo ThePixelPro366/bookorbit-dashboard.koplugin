@@ -1393,6 +1393,12 @@ function DashboardView:reopen()
     self:updateItems()
 end
 
+-- Sets aside a dashboard that was built but not shown, as if closed, so
+-- reopen() shows it with its first page already drawn.
+function DashboardView:park()
+    self:onCloseWidget()
+end
+
 -- Whether reopen() can serve: the screen has the same shape as when it closed.
 function DashboardView:canReopen()
     return self.closed and self.dimen.w == Screen:getWidth() and self.dimen.h == Screen:getHeight()
@@ -1427,6 +1433,9 @@ function DashboardView:finishCustomUpdate(old_dimen)
         local x = math.min(self.selected and self.selected.x or 1, #self.layout[y])
         self.selected = { x = x, y = y }
     end
+    -- A dashboard built ahead of time (see main.lua) is not on screen yet:
+    -- no refresh, or the file browser would flash. Showing it repaints it.
+    if UIManager.isWidgetShown and not UIManager:isWidgetShown(self) then return end
     UIManager:setDirty(self, function()
         return "ui", old_dimen and old_dimen:combine(self.dimen) or self.dimen
     end)
