@@ -782,8 +782,9 @@ function DashboardView:boardFreshenClock(entry, ctx, g, page)
     end
 end
 
--- While the reader looks at a page, the pages either side are built, one
--- per idle moment, so the next flip is a blit.
+-- While the reader looks at a page, the other pages are built, nearest
+-- first, one per idle moment, so flips are blits. A first build costs a
+-- good part of a second on an e-reader, a cached page a few megabytes.
 function DashboardView:boardSchedulePrebuild(page)
     if self._prebuild_task then UIManager:unschedule(self._prebuild_task) end
     self._prebuild_task = function()
@@ -791,7 +792,7 @@ function DashboardView:boardSchedulePrebuild(page)
         if self.closed or self.board_edit or not self._board_ctx or self:boardPage() ~= page then return end
         if not self:boardIsTopmost() then return end
         local g = self._board_geometry
-        for _i, other in ipairs({ page + 1, page - 1 }) do
+        for _i, other in ipairs({ page + 1, page - 1, page + 2, page - 2, page + 3, page - 3 }) do
             if other >= 1 and other <= BoardStore.PAGE_COUNT then
                 local key = self:boardPageKey(self._board_ctx, other, self.inner_dimen.w, self.available_height)
                 local entry = self._pages and self._pages[other]
@@ -1363,8 +1364,14 @@ function DashboardView:init()
     if Device:isTouchDevice() then
         self.ges_events.Swipe = { GestureRange:new{ ges = "swipe", range = function() return self.dimen end } }
     end
-    -- New covers or metadata from the extractor: gather the board's data
-    -- again, and redraw when nothing covers the board.
+    self:boardBindLibrary()
+    self:boardReload(true)
+    self:updateItems()
+end
+
+-- New covers or metadata from the extractor: gather the board's data
+-- again, and redraw when nothing covers the board.
+function DashboardView:boardBindLibrary()
     Library.on_update = function(what)
         if self.closed then return end
         if what == "books" then
@@ -1373,8 +1380,22 @@ function DashboardView:init()
         end
         if self:boardIsTopmost() and not self.board_edit then self:updateItems() end
     end
+end
+
+-- Shows a closed dashboard again. Its pages are still drawn: the ones whose
+-- data did not change since are shown without building them again.
+function DashboardView:reopen()
+    self.closed = false
+    self.board_edit = nil
+    self.current_context = { kind = "dashboard", board_page = 1 }
+    self:boardBindLibrary()
     self:boardReload(true)
     self:updateItems()
+end
+
+-- Whether reopen() can serve: the screen has the same shape as when it closed.
+function DashboardView:canReopen()
+    return self.closed and self.dimen.w == Screen:getWidth() and self.dimen.h == Screen:getHeight()
 end
 
 function DashboardView:persistSetting(key, value)
@@ -1474,11 +1495,12 @@ function DashboardView:onScreenResize(dimen)
     return self:onSetDimensions(dimen)
 end
 
+-- The drawn pages are kept for reopen(); the plugin frees them with
+-- boardFreePages() when it lets go of this view.
 function DashboardView:onCloseWidget()
     self.closed = true
     if self._board_clock_task then UIManager:unschedule(self._board_clock_task) end
     if self._prebuild_task then UIManager:unschedule(self._prebuild_task) end
-    self:boardFreePages()
     Library.on_update = nil
     if self.close_callback then self.close_callback() end
 end

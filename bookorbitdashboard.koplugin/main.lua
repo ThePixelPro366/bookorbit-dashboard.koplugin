@@ -121,14 +121,35 @@ function Dashboard:openDashboard()
         self.ui:onHome()
         return
     end
-    local DashboardView = require("dashboard_view")
-    self.board_view = DashboardView:new{
-        plugin = self,
-        settings = self.settings,
-        close_callback = function() self.board_view = nil end,
-    }
+    local kept = self.closed_view
+    self.closed_view = nil
+    if kept and kept:canReopen() then
+        -- The last dashboard, with its pages still drawn.
+        self.board_view = kept
+        kept:reopen()
+    else
+        if kept then kept:boardFreePages() end
+        local DashboardView = require("dashboard_view")
+        self.board_view = DashboardView:new{
+            plugin = self,
+            settings = self.settings,
+            close_callback = function()
+                self.closed_view = self.board_view
+                self.board_view = nil
+            end,
+        }
+    end
     UIManager:show(self.board_view)
     return self.board_view
+end
+
+-- The closed dashboard's pages, kept for reopening it, are freed with
+-- the file browser (a book opening, KOReader quitting).
+function Dashboard:freeClosedView()
+    if self.closed_view then
+        self.closed_view:boardFreePages()
+        self.closed_view = nil
+    end
 end
 
 function Dashboard:onBookorbitDashboardOpen()
@@ -179,6 +200,7 @@ function Dashboard:onCloseDocument()
 end
 
 function Dashboard:onCloseWidget()
+    if not self.in_reader then self:freeClosedView() end
     if self.in_reader and self.settings.auto_open == "home" and not PluginShare.bookorbit_dashboard_return then
         PluginShare.bookorbit_dashboard_return = os.time()
     end

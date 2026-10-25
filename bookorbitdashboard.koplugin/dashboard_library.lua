@@ -309,26 +309,34 @@ local function writeCover(bb, file)
         local RenderImage = require("ui/renderimage")
         out = RenderImage:scaleBlitBuffer(bb, math.max(1, math.floor(w * COVER_MAX_H / h + 0.5)), COVER_MAX_H, false)
     end
-    os.remove(file)
+    -- Written aside and renamed, so a cover cut short (KOReader quitting
+    -- while a subprocess writes it) is never taken for a whole one.
     -- KOReader decodes by content, not by name, so a PNG written where
     -- writeJPG is missing still reads back.
+    local tmp = file .. ".tmp"
+    os.remove(tmp)
     local ok
     if out.writeJPG then
-        ok = pcall(out.writeJPG, out, file, COVER_QUALITY)
+        ok = pcall(out.writeJPG, out, tmp, COVER_QUALITY)
     else
-        ok = pcall(out.writePNG, out, file)
+        ok = pcall(out.writePNG, out, tmp)
     end
     if out ~= bb then out:free() end
-    return ok and lfs.attributes(file, "mode") == "file"
+    if not (ok and lfs.attributes(tmp, "mode") == "file") then
+        os.remove(tmp)
+        return false
+    end
+    return os.rename(tmp, file) ~= nil
 end
 
 -- Opens one book for its metadata and its cover. CoverBrowser's cache is
 -- asked first for the cover, so a book it already indexed with a cover big
 -- enough for a tile is not opened just for that (its mosaic thumbnails are
--- far too small).
-function Library.extract(path, want_cover)
+-- far too small). Returns what it learnt and changes no state of its own,
+-- so it can run in a subprocess.
+local function readBook(path, want_cover)
     local attr = lfs.attributes(path)
-    if not attr then return end
+    if not attr then return nil end
     local file = coverFile(path)
     local entry = { mtime = attr.modification }
     local have_cover = false
@@ -366,19 +374,42 @@ function Library.extract(path, want_cover)
     end
     entry.nocover = want_cover and not have_cover or nil
     if want_cover then os.remove(legacyCoverFile(path)) end
+    return entry
+end
+
+local function failedEntry(path)
+    return { mtime = lfs.attributes(path, "modification"), nocover = true, failed = true }
+end
+
+-- Keeps what was learnt about a book.
+local function learn(path, entry)
     metaStore()[path] = entry
     meta_dirty = true
     Library.invalidateBooks(path)
 end
 
+-- Opens one book for its metadata and its cover, here and now.
+function Library.extract(path, want_cover)
+    local entry = readBook(path, want_cover)
+    if entry then learn(path, entry) end
+end
+
 -- The extractor's queue: covers first (something on screen waits for
--- them), then books whose metadata is unknown. One book per step. Opening a
--- book takes a while on an e-reader, so metadata-only work waits until the
--- reader has left the screen alone for a few seconds, and goes slowly.
+-- them), then books whose metadata is unknown. Opening a book takes a good
+-- part of a second on an e-reader, so books are read in a subprocess, a few
+-- at a time, while the board stays responsive (and on the second CPU core
+-- where the device has one). Metadata-only work still waits until the
+-- reader has left the screen alone for a few seconds. Where a subprocess
+-- cannot be started, books are read here, one per step.
 local queue, queued = {}, {}
 local running = false
 local IDLE_DELAY = 4
 local quiet_until = 0
+local COVER_BATCH = 4
+local BOOK_BATCH = 20
+-- A subprocess taking longer than this is stopped; its books count as failed.
+local BATCH_TIMEOUT = 300
+local fork_failed = false
 -- Called (debounced) when the extractor learnt something new: with
 -- "covers" when only covers arrived, "books" when metadata did (which can
 -- change shelves and counts).
@@ -389,6 +420,11 @@ Library.cover_version = 0
 -- The reader touched the screen: background metadata work holds off.
 function Library.busy()
     quiet_until = os.time() + IDLE_DELAY
+end
+
+-- Whether books are still waiting to be read, or being read.
+function Library.extracting()
+    return running
 end
 
 local pending = { covers = false, books = false, task = nil }
@@ -405,34 +441,139 @@ local function notify(kind)
     UIManager:scheduleIn(kind == "covers" and 1.5 or 2, pending.task)
 end
 
+-- The next jobs to run: up to a batch of the same kind as the first, or
+-- false while metadata work waits for a quiet moment, nil when none are left.
+local function takeBatch(size_cover, size_books)
+    local first = queue[1]
+    if not first then return nil end
+    if not first.cover and os.time() < quiet_until then return false end
+    local size = first.cover and size_cover or size_books
+    local batch = {}
+    while queue[1] and #batch < size and queue[1].cover == first.cover do
+        local job = table.remove(queue, 1)
+        queued[job.path] = nil
+        table.insert(batch, job)
+    end
+    return batch
+end
+
+local function finishJob(job, entry)
+    learn(job.path, entry or failedEntry(job.path))
+    if job.cover then Library.cover_version = Library.cover_version + 1 end
+end
+
+-- The second core is turned on for the subprocess (KOReader keeps it off
+-- on some Kobos), and back off unless CoverBrowser still has work running.
+local function useSecondCore(on)
+    local Device = require("device")
+    if not Device.enableCPUCores then return end
+    if on then
+        pcall(Device.enableCPUCores, Device, 2)
+        return
+    end
+    local manager = bookInfoManager()
+    if manager and type(manager.subprocesses_pids) == "table" and #manager.subprocesses_pids > 0 then return end
+    pcall(Device.enableCPUCores, Device, 1)
+end
+
+-- Reads a batch in a subprocess. It writes the covers to the cache and what
+-- it learnt to a results file, one line per book as it goes; done(results)
+-- is called here once it has exited. Returns false if it could not start.
+local function readInSubprocess(batch, done)
+    local ffiutil = require("ffi/util")
+    local results_file = cacheDir() .. "/extract.lua"
+    os.remove(results_file)
+    -- CoverBrowser's database connection must not be shared with the child.
+    local manager = bookInfoManager()
+    if manager and manager.closeDbConnection then pcall(manager.closeDbConnection, manager) end
+    local dump = require("dump")
+    local pid = ffiutil.runInSubProcess(function()
+        local f = io.open(results_file, "w")
+        if not f then return end
+        for _i, job in ipairs(batch) do
+            local ok, entry = pcall(readBook, job.path, job.cover)
+            if not ok then entry = failedEntry(job.path) end
+            if entry then
+                f:write(string.format("R[%q] = %s\n", job.path, dump(entry)))
+                f:flush()
+            end
+        end
+        f:close()
+    end)
+    if not pid then return false end
+    useSecondCore(true)
+    UIManager:preventStandby()
+    local started = os.time()
+    local function poll()
+        if not ffiutil.isSubProcessDone(pid) then
+            if os.time() - started < BATCH_TIMEOUT then return UIManager:scheduleIn(0.25, poll) end
+            logger.warn("Dashboard: book reader subprocess timed out")
+            ffiutil.terminateSubProcess(pid)
+            if not ffiutil.isSubProcessDone(pid) then return UIManager:scheduleIn(0.25, poll) end
+        end
+        UIManager:allowStandby()
+        useSecondCore(false)
+        local results = {}
+        local f = io.open(results_file)
+        if f then
+            local chunk = loadstring("local R = ...\n" .. f:read("*a"), "extract")
+            f:close()
+            if chunk then pcall(setfenv(chunk, {}), results) end
+        end
+        os.remove(results_file)
+        done(results)
+    end
+    UIManager:scheduleIn(0.25, poll)
+    return true
+end
+
 local function runQueue()
     if running then return end
     running = true
-    local function step()
-        local job = queue[1]
-        if not job then
+    local step
+    local function after(batch)
+        local covers = false
+        for _i, job in ipairs(batch) do covers = covers or job.cover end
+        if covers then notify("covers") end
+        -- Metadata-only books are told about once the queue is empty, in one
+        -- reload rather than one per batch.
+        UIManager:scheduleIn(covers and 0.05 or 0.5, step)
+    end
+    step = function()
+        local batch = fork_failed and takeBatch(1, 1) or takeBatch(COVER_BATCH, BOOK_BATCH)
+        if batch == nil then
             running = false
             if meta_dirty then notify("books") end
             return
         end
-        if not job.cover and os.time() < quiet_until then
-            return UIManager:scheduleIn(IDLE_DELAY, step)
+        if batch == false then return UIManager:scheduleIn(IDLE_DELAY, step) end
+        if not fork_failed then
+            local started = readInSubprocess(batch, function(results)
+                for _i, job in ipairs(batch) do
+                    local entry = results[job.path]
+                    if entry == nil and not job.retried then
+                        -- Not reached (the subprocess died first): once more.
+                        job.retried = true
+                        if not queued[job.path] then
+                            queued[job.path] = job
+                            table.insert(queue, job)
+                        end
+                    else
+                        finishJob(job, entry)
+                    end
+                end
+                after(batch)
+            end)
+            if started then return end
+            logger.warn("Dashboard: cannot start a subprocess, reading books in place")
+            fork_failed = true
         end
-        table.remove(queue, 1)
-        queued[job.path] = nil
-        local ok, err = pcall(Library.extract, job.path, job.cover)
-        if not ok then
-            logger.dbg("Dashboard: could not read", job.path, err)
-            metaStore()[job.path] = { mtime = lfs.attributes(job.path, "modification"), nocover = true, failed = true }
-            meta_dirty = true
+        for _i, job in ipairs(batch) do
+            local ok, entry = pcall(readBook, job.path, job.cover)
+            if not ok then logger.dbg("Dashboard: could not read", job.path, entry) end
+            finishJob(job, ok and entry or nil)
         end
-        if job.cover then
-            Library.cover_version = Library.cover_version + 1
-            notify("covers")
-        end
-        -- Metadata-only books are told about once the queue is empty, in one
-        -- reload rather than one per book.
-        UIManager:scheduleIn(job.cover and 0.05 or 0.5, step)
+        after(batch)
     end
     UIManager:scheduleIn(0.3, step)
 end
@@ -813,6 +954,38 @@ local function shelfKey(props)
     return require("dashboard_board_store").shelfKey(props)
 end
 
+-- What a body holds, as a string. A book's table is replaced whenever
+-- anything about it changes (see Library.book), so books are compared by
+-- identity; shelves cover collections and order.
+local last_body = nil
+local function bodySignature(body, opts)
+    local parts = { body.generatedAt:sub(1, 10), os.date("%Y-%m-%d"), tostring(opts.goal), tostring(opts.shuffle),
+        Library.books_version, #body._books }
+    local function add(list)
+        for _i, b in ipairs(list or {}) do parts[#parts + 1] = tostring(b) end
+        parts[#parts + 1] = "/"
+    end
+    add(body._books)
+    add(body.continueReading)
+    local keys = {}
+    for key in pairs(body.boardShelves) do table.insert(keys, key) end
+    table.sort(keys)
+    for _i, key in ipairs(keys) do
+        parts[#parts + 1] = key
+        add(body.boardShelves[key])
+    end
+    local s = body.readingStreak or {}
+    parts[#parts + 1] = tostring(s.currentStreak) .. "," .. tostring(s.longestStreak)
+    for i = 1, 7 do parts[#parts + 1] = tostring((s.lastSevenDays or {})[i]) end
+    local h = body.highlightOfTheDay
+    parts[#parts + 1] = h and h.key or "-"
+    local y = body.yearAgo
+    parts[#parts + 1] = y and (tostring(y.book and (y.book.path or y.book.id)) .. ":" .. tostring(y.minutes)) or "-"
+    for _i, name in ipairs(body.boardNames.collections or {}) do parts[#parts + 1] = name end
+    parts[#parts + 1] = tostring(body.browseCounts.collections)
+    return table.concat(parts, "|")
+end
+
 -- The dashboard body. opts.sources are the shelves some widget on the board
 -- draws (key -> props); opts.goal the yearly goal in books; opts.shuffle how
 -- many times Discover was shuffled today.
@@ -882,6 +1055,12 @@ function Library.body(now, opts)
     body.yearAgo = Library.yearAgo(by_md5, now)
     body._books = books
     body._by_path = by_path
+    -- The same content as last time: hand back the same body, so pages the
+    -- board drew from it are still current (they are keyed by the body).
+    local sig = bodySignature(body, opts)
+    if last_body and last_body._sig == sig then return last_body end
+    body._sig = sig
+    last_body = body
     return body
 end
 

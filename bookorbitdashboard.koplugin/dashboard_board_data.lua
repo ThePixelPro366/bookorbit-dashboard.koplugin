@@ -688,7 +688,6 @@ function BoardData.build(view, context, now)
 
     d.word = BoardData.wordOfTheDay(now)
     d.light = BoardData.light()
-    d.storage = BoardData.storage(Library.homeDir(), now)
 
     local lead = d.continue_reading[1]
     local lead_md5 = nil
@@ -716,6 +715,8 @@ function BoardData.build(view, context, now)
         hours = function() return BoardData.hours(now) end,
         records = function() return BoardData.records(now) end,
         pages = function() return BoardData.pageTurns(now) end,
+        -- Measuring the disk can mean running df.
+        storage = function() return BoardData.storage(Library.homeDir(), now) end,
         months = function() return BoardData.monthTotals(d.heatmap, d.heatmap_start, now) end,
         moon = function() return BoardData.moon(now) end,
         glyph = function()
