@@ -119,7 +119,7 @@ Powered by BookOrbit:
 > redistribute and modify it under those terms.
 
 This is a modified version of BookOrbit and is not an official BookOrbit
-release. Modified 2026-10-24. See [NOTICE](NOTICE) for what changed.
+release. Modified 2026-10-25. See [NOTICE](NOTICE) for what changed.
 
 - [LICENSE](LICENSE): GNU AGPLv3
 - [ADDITIONAL_TERMS.md](ADDITIONAL_TERMS.md): BookOrbit's additional terms (attribution, modified-version notice, trademarks)
